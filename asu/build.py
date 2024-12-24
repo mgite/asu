@@ -168,8 +168,6 @@ def build(build_request: BuildRequest, job=None):
             auto_remove=True,
             environment=environment,
         )
-        network = containerization_tech.networks.get("openwrt_network")
-        network.connect(container)
     elif CONTAINERIZATION_TECH == "podman":
         container = containerization_tech.containers.create(
             image,
