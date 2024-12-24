@@ -19,6 +19,7 @@ from asu.util import (
     get_branch,
     get_container_version_tag,
     get_packages_hash,
+    get_docker,
     get_podman,
     get_request_hash,
     parse_manifest,
@@ -26,6 +27,8 @@ from asu.util import (
     report_error,
     run_cmd,
 )
+
+from asu.util import CONTAINERIZATION_TECH
 
 log = logging.getLogger("rq.worker")
 
@@ -52,9 +55,12 @@ def build(build_request: BuildRequest, job=None):
 
     log.debug(f"Building {build_request}")
 
-    podman = get_podman()
-
-    log.debug(f"Podman version: {podman.version()}")
+    if CONTAINERIZATION_TECH == "docker":
+        containerization_tech = get_docker()
+        log.debug(f"Docker version: {containerization_tech.version()}")
+    elif CONTAINERIZATION_TECH == "podman":
+        containerization_tech = get_podman()
+        log.debug(f"Podman version: {containerization_tech.version()}")
 
     container_version_tag = get_container_version_tag(build_request.version)
     log.debug(
@@ -87,7 +93,7 @@ def build(build_request: BuildRequest, job=None):
     job.save_meta()
 
     log.info(f"Pulling {image}...")
-    podman.images.pull(image)
+    containerization_tech.images.pull(image)
     log.info(f"Pulling {image}... done")
 
     (bin_dir / "keys").mkdir(parents=True, exist_ok=True)
@@ -152,17 +158,31 @@ def build(build_request: BuildRequest, job=None):
 
     log.debug("Mounts: %s", mounts)
 
-    container = podman.containers.create(
-        image,
-        command=["sleep", "600"],
-        mounts=mounts,
-        cap_drop=["all"],
-        no_new_privileges=True,
-        privileged=False,
-        networks={"pasta": {}},
-        auto_remove=True,
-        environment=environment,
-    )
+    if CONTAINERIZATION_TECH == "docker":
+        container = containerization_tech.containers.create(
+            image,
+            command=["sleep", "600"],
+            mounts=mounts,
+            cap_drop=["all"],
+            privileged=False,
+            auto_remove=True,
+            environment=environment,
+        )
+        network = containerization_tech.networks.get("openwrt_network")
+        network.connect(container)
+    elif CONTAINERIZATION_TECH == "podman":
+        container = containerization_tech.containers.create(
+            image,
+            command=["sleep", "600"],
+            mounts=mounts,
+            cap_drop=["all"],
+            no_new_privileges=True,
+            privileged=False,
+            networks={"pasta": {}},
+            auto_remove=True,
+            environment=environment,
+        )
+
     container.start()
 
     if is_snapshot_build(build_request.version):
@@ -313,7 +333,7 @@ def build(build_request: BuildRequest, job=None):
 
     if Path(build_key).is_file():
         log.info(f"Signing images with key {build_key}")
-        container = podman.containers.create(
+        container = containerization_tech.containers.create(
             image,
             mounts=[
                 {

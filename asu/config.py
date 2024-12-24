@@ -1,6 +1,11 @@
 from pathlib import Path
 from typing import Union
 
+from docker import DockerClient
+from docker.errors import DockerException
+from podman import PodmanClient
+from podman.errors import PodmanError
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 package_changes_list = [
@@ -82,6 +87,29 @@ class Settings(BaseSettings):
     server_stats: str = "/stats"
     log_level: str = "INFO"
     squid_cache: bool = False
+
+    def detect_container_host(self) -> str:
+        """
+        Detect whether the container_host is set to a Docker or Podman socket.
+
+        Returns:
+            str: 'docker', 'podman', or 'unknown'
+        """
+        try:
+            docker_client = DockerClient(base_url=self.container_host)
+            if docker_client.ping():
+                return "docker"
+        except DockerException:
+            pass
+
+        try:
+            podman_client = PodmanClient(base_url=self.container_host)
+            if podman_client.system.ping():
+                return "podman"
+        except PodmanError:
+            pass
+
+        return "unknown"
 
 
 settings = Settings()

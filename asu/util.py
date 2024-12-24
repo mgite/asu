@@ -13,14 +13,21 @@ from typing import Optional
 
 import httpx
 import nacl.signing
+from docker import DockerClient
 from podman import PodmanClient
-from podman.domain.containers import Container
 from rq import Queue
 from rq.job import Job
 
 import redis
 from asu.build_request import BuildRequest
 from asu.config import settings
+
+CONTAINERIZATION_TECH = settings.detect_container_host()
+
+if CONTAINERIZATION_TECH == "docker":
+    from docker.models.containers import Container
+elif CONTAINERIZATION_TECH == "podman":
+    from podman.domain.containers import Container
 
 
 log: logging.Logger = logging.getLogger("rq.worker")
@@ -216,6 +223,13 @@ def get_container_version_tag(input_version: str) -> str:
     return version
 
 
+def get_docker() -> DockerClient:
+    return DockerClient(
+        base_url=settings.container_host,
+        version='auto',
+    )
+
+
 def get_podman() -> PodmanClient:
     return PodmanClient(
         base_url=settings.container_host,
@@ -249,8 +263,8 @@ def run_cmd(
 ) -> tuple[int, str, str]:
     returncode, output = container.exec_run(command, demux=True, user="buildbot")
 
-    stdout: str = output[0].decode("utf-8")
-    stderr: str = output[1].decode("utf-8")
+    stdout: str = output[0].decode("utf-8") if output[0] else ""
+    stderr: str = output[1].decode("utf-8") if output[1] else ""
 
     log.debug(f"returncode: {returncode}")
     log.debug(f"stdout: {stdout}")
